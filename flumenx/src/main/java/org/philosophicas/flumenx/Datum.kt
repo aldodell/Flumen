@@ -14,6 +14,7 @@ enum class DatumType(init: kotlin.Byte) {
     Double(4.toByte()),
     Float(5.toByte()),
     String(6.toByte()),
+    Boolean(6.toByte())
 }
 
 /**
@@ -79,7 +80,7 @@ class Datum {
     companion object {
 
         /** Create a datum object from a InputStream */
-        fun from(stream: InputStream): Datum? {
+        fun from(stream: InputStream, skipPayload: Boolean = false): Datum? {
 
             val buffer = ByteBuffer.allocate(18)
             val byteArray = ByteArray(18)
@@ -117,9 +118,14 @@ class Datum {
             d.path = String(bufPath, Charsets.UTF_8)
 
             //* Payload          | m
-            val bufPayload = ByteArray(d.payloadSize)
-            stream.read(bufPayload)
-            d.payload = bufPayload
+            if (!skipPayload) {
+                val bufPayload = ByteArray(d.payloadSize)
+                stream.read(bufPayload)
+                d.payload = bufPayload
+            } else {
+                stream.skip(d.payloadSize.toLong())
+
+            }
 
             return d
         }
@@ -214,53 +220,132 @@ class Datum {
         //   * Payload          | m
         buffer.put(payload)
 
+        stream.write(buffer.array())
+
         return datumSize
     }
 
-    val int: Int
+    /**
+     * Binary converter. Serialize and deserialize datum object.
+     */
+    var bytes: ByteArray
+        get() {
+            val buf = ByteBuffer.allocate(18 + pathSize + payloadSize)
+            buf.put(version)
+            buf.put(status.init)
+            buf.putInt(record)
+            buf.putInt(pathHash)
+            buf.putInt(pathSize)
+            buf.putInt(payloadSize)
+            buf.put(path.toByteArray(Charsets.UTF_8))
+            buf.put(payload)
+            return buf.array()
+        }
+        set(value) {
+            val buf = ByteBuffer.allocate(18 + pathSize + payloadSize)
+            buf.put(value)
+            version = buf.get()
+            status = Status.valueOf(buf.get())
+            record = buf.int
+            pathHash = buf.int
+            pathSize = buf.int
+            payloadSize = buf.int
+
+            val pathBuf = ByteArray(pathSize)
+            buf.get(pathBuf)
+            path = String(pathBuf, Charsets.UTF_8)
+
+            val payloadBuf = ByteArray(payloadSize)
+            buf.get(payloadBuf)
+            payload = payloadBuf
+        }
+
+    /*
+    Serie of conversor between primitives types.
+    See https://kotlinlang.org/docs/tutorials/kotlin-for-py/primitive-data-types-and-their-limitations.html
+     */
+
+    var int: Int
         get() {
             return ByteBuffer.wrap(payload).int
         }
+        set(value) {
+            payload = ByteBuffer.allocate(4).putInt(value).array()
+        }
 
-    val short: Short
+    var short: Short
         get() {
             return ByteBuffer.wrap(payload).short
         }
+        set(value) {
+            payload = ByteBuffer.allocate(2).putShort(value).array()
+        }
 
-    val float: Float
+
+    var float: Float
         get() {
             return ByteBuffer.wrap(payload).float
         }
+        set(value) {
+            payload = ByteBuffer.allocate(4).putFloat(value).array()
+        }
 
-    val char: Char
+
+    var char: Char
         get() {
             return ByteBuffer.wrap(payload).char
         }
+        set(value) {
+            payload = ByteBuffer.allocate(2).putChar(value).array()
+        }
 
-    val double: Double
+
+    var double: Double
         get() {
             return ByteBuffer.wrap(payload).double
         }
+        set(value) {
+            payload = ByteBuffer.allocate(8).putDouble(value).array()
+        }
 
-    val long: Long
+
+    var long: Long
         get() {
             return ByteBuffer.wrap(payload).long
         }
+        set(value) {
+            payload = ByteBuffer.allocate(8).putLong(value).array()
+        }
 
 
-    val string: String
+    var string: String
         get() {
             return String(payload, Charsets.UTF_8)
         }
-
-    val boolean: Boolean
-        get() {
-            return payload[0] == 1.toByte()
+        set(value) {
+            payload = value.toByteArray(Charsets.UTF_8)
         }
 
 
-    val byteArray: ByteArray
+    var boolean: Boolean
+        get() {
+            return payload[0] == 1.toByte()
+        }
+        set(value) {
+            payload = if (value) byteArrayOf(1.toByte()) else byteArrayOf(0.toByte())
+        }
+
+    /** Assign raw bytes directly. It's differente of "bytes" property*/
+    var byteArray: ByteArray
         get() = payload
+        set(value) {
+            payload = value
+        }
 
 
+    //Return a hash code for path:record tupla to identify datum
+    val signature: Int
+        get() {
+            return "$path:$record".hashCode()
+        }
 }
