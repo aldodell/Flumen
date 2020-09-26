@@ -1,2 +1,3 @@
+include ':flumenx'
 include ':app'
 rootProject.name = "Flumen"
